@@ -11,6 +11,7 @@ import mainEvents from '@/main/mainEvents';
 import { getImageProcessor } from '@/k8s-engine/images/imageFactory';
 import { ImageProcessor } from '@/k8s-engine/images/imageProcessor';
 import { ImageEventHandler } from '@/main/imageEvents';
+import { CommandServer } from '@/main/commandServer';
 import * as settings from '@/config/settings';
 import * as window from '@/window';
 import * as K8s from '@/k8s-engine/k8s';
@@ -113,6 +114,11 @@ Electron.app.whenReady().then(async() => {
     window.openPreferences();
 
     await startBackend(cfg);
+    try {
+      (new CommandServer()).start();
+    } catch (ex) {
+      console.log(`Error starting up the command-server: ${ ex }`);
+    }
   } catch (ex) {
     console.error('Error starting up:', ex);
     gone = true;
