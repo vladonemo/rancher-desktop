@@ -11,7 +11,7 @@ import mainEvents from '@/main/mainEvents';
 import { getImageProcessor } from '@/k8s-engine/images/imageFactory';
 import { ImageProcessor } from '@/k8s-engine/images/imageProcessor';
 import { ImageEventHandler } from '@/main/imageEvents';
-import { CommandServer } from '@/main/commandServer';
+import { CommandWorkerInterface, CommandServer } from '@/main/commandServer';
 import * as settings from '@/config/settings';
 import * as window from '@/window';
 import * as K8s from '@/k8s-engine/k8s';
@@ -24,6 +24,7 @@ import setupNetworking from '@/main/networking';
 import setupUpdate from '@/main/update';
 import setupTray from '@/main/tray';
 import buildApplicationMenu from '@/main/mainmenu';
+import { VersionEntry } from '@/k8s-engine/k8s';
 
 Electron.app.setName('Rancher Desktop');
 Electron.app.setPath('cache', paths.cache);
@@ -113,9 +114,9 @@ Electron.app.whenReady().then(async() => {
     setupTray();
     window.openPreferences();
 
-    await startBackend(cfg);
+    await startBackend();
     try {
-      (new CommandServer()).start();
+      (new CommandServer(new CommandWorker())).start();
     } catch (ex) {
       console.log(`Error starting up the command-server: ${ ex }`);
     }
@@ -201,7 +202,7 @@ function setupProtocolHandler() {
  *
  * @precondition cfg.kubernetes.version is set.
  */
-async function startBackend(cfg: settings.Settings) {
+async function startBackend() {
   await checkBackendValid();
   try {
     await startK8sManager();
@@ -351,9 +352,14 @@ function writeSettings(arg: RecursivePartial<settings.Settings>) {
 
 Electron.ipcMain.handle('settings-write', (event, arg) => {
   console.debug(`event settings-write in main: ${ event }, ${ arg }`);
-  writeSettings(arg);
+  handleSettingsWrite(arg);
   event.sender.sendToFrame(event.frameId, 'settings-update', cfg);
 });
+
+function handleSettingsWrite(arg: RecursivePartial<settings.Settings>): void {
+  console.debug(`handleSettingsWrite: arg: ${ arg }`);
+  writeSettings(arg);
+}
 
 Electron.ipcMain.on('k8s-state', (event) => {
   event.returnValue = k8smanager.state;
@@ -415,7 +421,13 @@ Electron.ipcMain.on('k8s-restart-required', async() => {
   await doK8sRestartRequired();
 });
 
-Electron.ipcMain.on('k8s-restart', async() => {
+Electron.ipcMain.on('k8s-restart', () => {
+  handleK8sRestart().catch((err) => {
+    console.log(`Error trying to restart the system: ${ err }`);
+  });
+});
+
+async function handleK8sRestart(): Promise<void> {
   if (cfg.kubernetes.port !== k8smanager.desiredPort) {
     // On port change, we need to wipe the VM.
     return doK8sReset('wipe');
@@ -434,7 +446,7 @@ Electron.ipcMain.on('k8s-restart', async() => {
   } catch (ex) {
     handleFailure(ex);
   }
-});
+}
 
 Electron.ipcMain.on('k8s-versions', async() => {
   window.send('k8s-versions', await k8smanager.availableVersions);
@@ -722,4 +734,39 @@ function newK8sManager() {
   });
 
   return mgr;
+}
+
+class CommandWorker implements CommandWorkerInterface {
+  getK8sVersion(): string {
+    return k8smanager.version;
+  }
+
+  async getK8sVersions(): Promise<string[]> {
+    const versions: VersionEntry[] = await k8smanager.availableVersions;
+
+    return versions.map(version => version.version.raw);
+  }
+
+  requestReset(): void {
+    handleK8sRestart().catch((err) => {
+      console.error(`Error trying to restart: `, err);
+    });
+  }
+
+  requestResetAll(): void {
+    doK8sReset('wipe').catch((err) => {
+      console.error(`Error trying to restart-all: `, err);
+    });
+  }
+
+  requestShutdown(): void {
+    Electron.app.quit();
+  }
+
+  setPref(arg: RecursivePartial<settings.Settings>): void {
+    handleSettingsWrite(arg);
+    // TODO: Are mainEvents.emit(settings-update) and
+    // event.sender.sendToFrame(event.frameId, 'settings-update', cfg); the same thing?
+    mainEvents.emit('settings-update', cfg);
+  }
 }
