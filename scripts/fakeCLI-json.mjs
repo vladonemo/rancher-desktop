@@ -23,43 +23,76 @@ const port = (() => {
   }
 })();
 
+const argv = process.argv.slice(2);
+let debug = false;
+let jsonOutput = false;
+while (argv.length > 0 && argv[0][0] === '-') {
+  if (argv[0] === '-d') {
+    debug = true;
+    argv.shift();
+  } else if (argv[0] === '-j') {
+    jsonOutput = true;
+    argv.shift();
+  } else {
+    break;
+  }
+}
 const dataPieces = [];
 let timeoutID;
-const rawCommand = process.argv.slice(2);
+const rawCommand = argv;
+let cycles = 0;
 
 function continueWithClient() {
-  console.log('Waiting for more events...');
+  if (cycles > 1 && debug) {
+    console.log('Waiting for more events...');
+  }
+  cycles += 1;
   timeoutID = setTimeout(continueWithClient, 1000);
 }
 
 function sendCommand(command) {
   const client = new net.Socket();
 
-  console.log(`QQQ: -client.connect(port: ${ port }`);
   client.connect(port, '127.0.0.1', () => {
-    console.log('connected...');
+    if (debug) {
+      console.log(`QQQ: -client.connect(port: ${ port })`);
+      console.log('connected...');
+    }
     client.write(command);
   });
   client.on('data', (data) => {
-    // console.log(`Got data: ${ data }`);
     dataPieces.push(data.toString());
   });
   client.on('close', () => {
-    console.log('Connection closed');
-    // gotClose = true;
     clearTimeout(timeoutID);
-    console.log(`Got back all data: ${ dataPieces.join('') }`);
+    if (debug) {
+      console.log('Connection closed');
+      console.log(`Got back all data: ${ dataPieces.join('') }`);
+    }
     try {
       const result = JSON.parse(dataPieces.join(''));
 
       switch (result.status) {
       case 'error':
-        console.log(`Error in command rawCommand.join(' '): `);
+        console.log(`Error in command ${ rawCommand.join(' ') }: `);
         /* eslint-disable-next-line no-fallthrough */
       case 'help':
-      case 'true':
-      case 'false':
-        console.log(result.value);
+      case true:
+      case false:
+        if (result.type === 'json' && jsonOutput) {
+          try {
+            console.log(JSON.stringify(JSON.parse(result.value), undefined, 4));
+          } catch(err) {
+            console.log(`Can't dump json: ${ err }`);
+            console.log(result.value);
+          }
+        } else {
+          console.log(result.value);
+        }
+      }
+      if (result.status === 'help') {
+        console.log('-j - output json');
+        console.log('-d - debug/verbose mode');
       }
     } catch (e) {
       console.log(`Error showing ${ dataPieces.join('') }: `, e);
