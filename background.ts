@@ -738,7 +738,7 @@ function newK8sManager() {
 
 class CommandWorker implements CommandWorkerInterface {
   getK8sVersion(): string {
-    return k8smanager.version;
+    return k8smanager.version || cfg.kubernetes.version;
   }
 
   async getK8sVersions(): Promise<string[]> {
