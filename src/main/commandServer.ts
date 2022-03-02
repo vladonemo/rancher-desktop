@@ -100,7 +100,7 @@ export class CommandServer {
 
       return;
     }
-    server.listen(0, async() => {
+    server.listen(0, '127.0.0.1', async() => {
       const addr = server.address() as net.AddressInfo;
       const port = addr.port.toString();
 
@@ -252,7 +252,6 @@ export class CommandServer {
 
     this.commandWorker.setPref(block);
 
-    // TODO: mainEvents.emit('settings-write-event', block);
     return {
       status:  'updated',
       type:    'json',

@@ -77,6 +77,7 @@ function sendCommand(command) {
         console.log(`Error in command ${ rawCommand.join(' ') }: `);
         /* eslint-disable-next-line no-fallthrough */
       case 'help':
+      case 'updated':
       case true:
       case false:
         if (result.type === 'json' && jsonOutput) {
@@ -89,6 +90,9 @@ function sendCommand(command) {
         } else {
           console.log(result.value);
         }
+        break;
+      default:
+        console.log(result);
       }
       if (result.status === 'help') {
         console.log('-j - output json');

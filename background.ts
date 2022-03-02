@@ -357,7 +357,7 @@ Electron.ipcMain.handle('settings-write', (event, arg) => {
 });
 
 function handleSettingsWrite(arg: RecursivePartial<settings.Settings>): void {
-  console.debug(`handleSettingsWrite: arg: ${ arg }`);
+  // console.debug(`handleSettingsWrite: arg: ${ JSON.stringify(arg) }`);
   writeSettings(arg);
 }
 
@@ -765,8 +765,6 @@ class CommandWorker implements CommandWorkerInterface {
 
   setPref(arg: RecursivePartial<settings.Settings>): void {
     handleSettingsWrite(arg);
-    // TODO: Are mainEvents.emit(settings-update) and
-    // event.sender.sendToFrame(event.frameId, 'settings-update', cfg); the same thing?
-    mainEvents.emit('settings-update', cfg);
+    window.send('settings-update', cfg);
   }
 }
