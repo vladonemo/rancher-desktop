@@ -148,7 +148,7 @@ export class CommandServer {
 
       return {
         status:  'error',
-        value:  e.toString
+        value:  e.toString()
       };
     }
   }
@@ -281,7 +281,10 @@ export class CommandServer {
   }
 
   protected async doSetVersion(arg?: string): Promise<commandReturnType> {
-    return await this.doSetPref(`kubernetes.version=${ (arg as string) }`);
+    const m = /v?(.*?)(?:\+k3s.*)?/.exec(arg as string);
+    const version = m ? m[1] : arg;
+
+    return await this.doSetPref(`kubernetes.version=${ version }`);
   }
 
   protected async doShutDown(): Promise<commandReturnType> {
