@@ -10,7 +10,6 @@ import _ from 'lodash';
 import Logging from '@/utils/logging';
 import paths from '@/utils/paths';
 import { PathManagementStrategy } from '@/integrations/pathManager';
-import { RecursivePartial } from '@/utils/typeUtils';
 
 const console = Logging.settings;
 
@@ -62,6 +61,8 @@ export const defaultSettings = {
 };
 
 export type Settings = typeof defaultSettings;
+export const defaultTransientSettings = { noModalDialogs: false };
+export type TransientSettings = typeof defaultTransientSettings;
 
 let _isFirstRun = false;
 
@@ -151,21 +152,36 @@ export function getUpdatableNode(cfg: Settings, fqFieldAccessor: string): [Recor
 
   return (finalOptionPart in currentConfig) ? [currentConfig, finalOptionPart] : null;
 }
-
-export function updateFromCommandLine(cfg: Settings, args: string[]): Settings {
+export function updateFromCommandLine(cfg: Settings, commandLineArgs: string[]): [TransientSettings, Settings] {
   let i = 0;
-  const lim = args.length;
+  const lim = commandLineArgs.length;
 
   // Not using a for-loop here because `i` gets incremented in the loop to handle cases of `--option value`
   // ... in the belief that we don't usually expect the body of for-loops to manipulate the loop index.
   while (i < lim) {
-    const arg = args[i];
+    const arg = commandLineArgs[i];
 
     if (!arg.startsWith('--')) {
-      throw new Error(`Unexpected argument '${ arg }' in command-line [${ args.join(' ') }]`);
+      throw new Error(`Unexpected argument '${ arg }' in command-line [${ commandLineArgs.join(' ') }]`);
     }
-    const option = arg.substring(2);
-    const [fqFieldName, value] = option.split('=', 2);
+    const equalPosition = arg.indexOf('=');
+    const [fqFieldName, value] = equalPosition === -1 ? [arg.substring(2), ''] : [arg.substring(2, equalPosition), arg.substring(equalPosition + 1)];
+
+    if (fqFieldName === 'no-modal-dialogs') {
+      switch (value) {
+      case '':
+      case 'true':
+        defaultTransientSettings.noModalDialogs = true;
+        break;
+      case 'false':
+        defaultTransientSettings.noModalDialogs = false;
+        break;
+      default:
+        throw new Error(`Invalid associated value for ${ arg }: must be unspecified (set to true), true or false`);
+      }
+      i += 1;
+      continue;
+    }
     const lhsInfo = getUpdatableNode(cfg, fqFieldName);
 
     if (!lhsInfo) {
@@ -182,17 +198,17 @@ export function updateFromCommandLine(cfg: Settings, args: string[]): Settings {
       throw new Error(`Can't overwrite existing setting ${ arg } in current settings at ${ join(paths.config, 'settings.json') }`);
     case 'boolean':
       // --some-boolean-setting ==> --some-boolean-setting=true
-      if (value === undefined) {
+      if (equalPosition === -1) {
         finalValue = 'true'; // JSON.parse to boolean `true` a few lines later.
       }
       break;
     default:
-      if (value === undefined) {
+      if (equalPosition === -1) {
         if (i === lim - 1) {
-          throw new Error(`No value provided for option ${ arg } in command-line [${ args.join(' ') }]`);
+          throw new Error(`No value provided for option ${ arg } in command-line [${ commandLineArgs.join(' ') }]`);
         }
         i += 1;
-        finalValue = args[i];
+        finalValue = commandLineArgs[i];
       }
     }
     // Now verify we're not changing the type of the current value
@@ -213,9 +229,10 @@ export function updateFromCommandLine(cfg: Settings, args: string[]): Settings {
   }
   if (lim > 0) {
     save(cfg);
+    _isFirstRun = false;
   }
 
-  return cfg;
+  return [defaultTransientSettings, cfg];
 }
 /**
  * Load the settings file or create it if not present.
