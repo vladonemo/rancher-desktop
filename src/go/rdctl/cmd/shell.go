@@ -35,29 +35,41 @@ var shellCmd = &cobra.Command{
 
 > rdctl shell
 -- Runs an interactive shell
-> rdctl shell echo "An embedded ; ls thing"
--- Echoes back "An embedded ; ls thing".`,
+> rdctl shell -- ls -CF /tmp
+-- Runs 'ls -CF' from /tmp on the VM. Note that the leading '--' is needed because of the '-CF' argument
+> rdctl shell -- bash -c "cd .. ; pwd"
+-- Usual way of running multiple statements on a single call. Again, a leading '--' is needed
+   because of the -c option, even given that it's in the command part of the command line.
+`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return doShellCommand(cmd, args)
 	},
 }
 
-var initialWindowsShellDirectory string
-
 func init() {
 	rootCmd.AddCommand(shellCmd)
-	if runtime.GOOS == "windows" {
-		startCmd.Flags().StringVar(&initialWindowsShellDirectory, "cd", "", "Directory to run command in.")
+}
+
+// Notes for Windows:
+// If there are any `-...` args in the command to run, we'll need to prepend a `--` at the front.
+// Note that the user is going to need to specify a `--` on the rdctl command-line, but
+// cobra consumes it, so we need to inject a new one when the command-line is passed to wsl.
+func dashDashNeeded(args []string) bool {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			return true
+		}
 	}
+	return false
 }
 
 func doShellCommand(cmd *cobra.Command, args []string) error {
-	fmt.Fprintf(os.Stderr, "QQQ: args: %v\n", args)
+	cmd.SetUsageFunc(func(*cobra.Command) error { return nil })
 	var commandName string
 	if runtime.GOOS == "windows" {
 		commandName = "wsl"
-		if initialWindowsShellDirectory != "" {
-			args = append([]string{"--cd", initialWindowsShellDirectory}, args...)
+		if dashDashNeeded(args) {
+			args = append([]string{"--"}, args...)
 		}
 	} else {
 		err := addLimaBinToPath()
@@ -71,14 +83,6 @@ func doShellCommand(cmd *cobra.Command, args []string) error {
 		commandName = "limactl"
 		args = append([]string{"shell", "0"}, args...)
 	}
-	fmt.Fprintf(os.Stderr, "QQQ: LIMA_HOME: %s\n", os.Getenv("LIMA_HOME"))
-	blip, err := exec.LookPath("limactl")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "QQQ: Can't find limactl: %s\n", err)
-	} else {
-		fmt.Fprintf(os.Stderr, "QQQ: limactl is at %s\n", blip)
-	}
-	fmt.Fprintf(os.Stderr, "QQQ: about to launch %s %s\n", commandName, strings.Join(args, " "))
 	shellCommand := exec.Command(commandName, args...)
 	shellCommand.Stdin = os.Stdin
 	shellCommand.Stdout = os.Stdout
@@ -96,15 +100,12 @@ func addLimaBinToPath() error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "QQQ: os.Executable: %s\n", execPath)
 	execPath, err = filepath.EvalSymlinks(execPath)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "QQQ: os.Executable resolved symlink: %s\n", execPath)
 	candidatePath := path.Join(path.Dir(path.Dir(execPath)), "lima", "bin")
 	notFoundError := fmt.Errorf("no executable limactl file found in %s; try rerunning with the directory containing `limactl` added to PATH", candidatePath)
-	fmt.Fprintf(os.Stderr, "QQQ: Looking for limabin: candidatePath:%s\n", candidatePath)
 	stat, err := os.Stat(path.Join(candidatePath, "limactl"))
 	if err != nil {
 		return notFoundError
