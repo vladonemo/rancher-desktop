@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -41,8 +42,13 @@ var shellCmd = &cobra.Command{
 	},
 }
 
+var initialWindowsShellDirectory string
+
 func init() {
 	rootCmd.AddCommand(shellCmd)
+	if runtime.GOOS == "windows" {
+		startCmd.Flags().StringVar(&initialWindowsShellDirectory, "cd", "", "Directory to run command in.")
+	}
 }
 
 func doShellCommand(cmd *cobra.Command, args []string) error {
@@ -50,6 +56,9 @@ func doShellCommand(cmd *cobra.Command, args []string) error {
 	var commandName string
 	if runtime.GOOS == "windows" {
 		commandName = "wsl"
+		if initialWindowsShellDirectory != "" {
+			args = append([]string{"--cd", initialWindowsShellDirectory}, args...)
+		}
 	} else {
 		err := addLimaBinToPath()
 		if err != nil {
@@ -87,14 +96,21 @@ func addLimaBinToPath() error {
 	if err != nil {
 		return err
 	}
-	candidatePath := path.Join(path.Dir(path.Dir(execPath)), "lima", "bin")
-	fmt.Fprintf(os.Stderr, "QQQ: Looking for limabin: candidatePath:%s\n", candidatePath)
-	stat, err := os.Stat(path.Join(candidatePath, "limactl"))
+	fmt.Fprintf(os.Stderr, "QQQ: os.Executable: %s\n", execPath)
+	execPath, err = filepath.EvalSymlinks(execPath)
 	if err != nil {
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "QQQ: os.Executable resolved symlink: %s\n", execPath)
+	candidatePath := path.Join(path.Dir(path.Dir(execPath)), "lima", "bin")
+	notFoundError := fmt.Errorf("no executable limactl file found in %s; try rerunning with the directory containing `limactl` added to PATH", candidatePath)
+	fmt.Fprintf(os.Stderr, "QQQ: Looking for limabin: candidatePath:%s\n", candidatePath)
+	stat, err := os.Stat(path.Join(candidatePath, "limactl"))
+	if err != nil {
+		return notFoundError
+	}
 	if uint32(stat.Mode().Perm())&0111 == 0 {
-		return fmt.Errorf("No executable limactl file found in %s", candidatePath)
+		return notFoundError
 	}
 	os.Setenv("PATH", fmt.Sprintf("%s:%s", candidatePath, os.Getenv("PATH")))
 	return nil
@@ -112,11 +128,12 @@ func setupLimaHome() error {
 		candidatePath = path.Join(os.Getenv("HOME"), "Library", "Application Support", "rancher-desktop", "lima")
 	}
 	stat, err := os.Stat(candidatePath)
+	const suggestionMessage = "try rerunning with the environment variable LIMA_HOME set to such a directory"
 	if err != nil {
-		return err
+		return fmt.Errorf("can't find the lima-home directory in the expected spot; %s", suggestionMessage)
 	}
 	if !stat.Mode().IsDir() {
-		return fmt.Errorf("path %s exists but isn't a directory", candidatePath)
+		return fmt.Errorf("path %s exists but isn't a directory; %s", candidatePath, suggestionMessage)
 	}
 	os.Setenv("LIMA_HOME", candidatePath)
 	return nil
